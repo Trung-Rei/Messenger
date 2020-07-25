@@ -4,17 +4,11 @@ from tkinter import messagebox
 import socket
 import threading
 
-class LogIn:
-    def __init__(self, login_func):
-        self.func = login_func
-        self.gui = None
-        self.e_username = None
-        self.e_password = None
-        self.isLoggedIn = False
-
-    def run(self):
+class SignUp:
+    def __init__(self, s_send):
+        self.s_send = s_send
         self.gui = Tk()
-        self.gui.title('Log In')
+        self.gui.title('Sign UP')
         self.gui.resizable(False, False)
 
         l_username = Label(self.gui, text = 'UserName')
@@ -27,34 +21,95 @@ class LogIn:
         self.e_password = Entry(self.gui, width = 30)
         self.e_password.grid(row = 1, column = 1, sticky = W)
         
+        butt_login = Button(self.gui, text = 'Sign Up', command = self.signup)
+        butt_login.grid(row = 2, column = 1, sticky = W)
+
+        self.gui.protocol('WM_DELETE_WINDOW', self.close_window)
+
+    def run(self):
+        self.s_send.send(b'SIGNUP')
+        self.gui.mainloop()
+
+    def signup(self):
+        if self.signupFunc():
+            self.gui.destroy()
+            return
+        messagebox.showerror('Error', 'Username has already been taken!')
+
+    def signupFunc(self):
+        username = self.e_username.get()
+        password = self.e_password.get()
+        self.s_send.send(username.encode() + b'\n' + password.encode())
+        if self.s_send.recv(1024) == b'OK':
+            return True
+        return False
+
+    def close_window(self):
+        self.s_send.send(b'QUIT')
+        self.gui.destroy()
+
+class LogIn:
+    def __init__(self, s_send):
+        self.s_send = s_send
+        self.username = ''
+        self.gui = Tk()
+        self.gui.title('Log In')
+        self.gui.resizable(False, False)
+
+        l_username = Label(self.gui, text = 'UserName')
+        l_username.grid(row = 0, column = 0, sticky = W)
+        self.e_username = Entry(self.gui, width = 30)
+        self.e_username.grid(row = 0, column = 1, sticky = W, columnspan = 2)
+        
+        l_password = Label(self.gui, text = 'Password')
+        l_password.grid(row = 1, column = 0, sticky = W)
+        self.e_password = Entry(self.gui, width = 30, show = '*')
+        self.e_password.grid(row = 1, column = 1, sticky = W, columnspan = 2)
+        
         butt_login = Button(self.gui, text = 'Log In', command = self.login)
         butt_login.grid(row = 2, column = 1, sticky = W)
 
-        self.gui.mainloop()
-        return self.isLoggedIn
+        butt_signup = Button(self.gui, text = 'Sign Up', command = self.signup)
+        butt_signup.grid(row = 2, column = 2, sticky = W)
 
-    def login(self):
-        username = self.e_username.get()
-        password = self.e_password.get()
-        if self.func(username, password):
-            self.isLoggedIn = True
-            self.gui.destroy()
-            return
-        messagebox.showerror('Error', 'Incorrect username or password!')
-
-class Messenger:
-    def __init__(self, conn):
-        self.s_send = conn
-        self.s_recv = socket.socket()
-        addr = self.s_send.recv(1024).decode()
-        addr = addr.split(' ')
-        self.s_recv.connect((addr[0], int(addr[1])))
-
-        self.gui = None
-        self.st_recv = None
-        self.st_send = None
+        self.gui.protocol('WM_DELETE_WINDOW', self.close_window)
 
     def run(self):
+        self.s_send.send(b'LOGIN')
+        self.gui.mainloop()
+        return self.username
+
+    def login(self):
+        self.username = self.loginFunc()
+        if self.username != '':
+            self.gui.destroy()
+            return
+        messagebox.showerror('Error', 'Incorrect username or password\
+            \nor user has already logged in!')
+
+    def loginFunc(self):
+        username = self.e_username.get()
+        password = self.e_password.get()
+        self.s_send.send(username.encode() + b'\n' + password.encode())
+        if self.s_send.recv(1024) == b'OK':
+            return username
+        return ''
+
+    def signup(self):
+        sign_up = SignUp(self.s_send)
+        sign_up.run()
+
+    def close_window(self):
+        self.s_send.send(b'QUIT')
+        self.gui.destroy()
+
+class Messenger:
+    username = 'noname'
+
+    def __init__(self, s_send, roomName):
+        self.s_send = s_send
+        self.roomName = roomName
+
         self.gui = Tk()
         self.gui.title('Chat')
         self.gui.resizable(False, False)
@@ -68,6 +123,7 @@ class Messenger:
         self.st_recv.configure(state = 'disabled')
         self.st_recv.tag_config('user', foreground = 'red')
         self.st_recv.tag_config('msg', foreground = 'blue')
+        self.st_recv.tag_config('notif', foreground = 'green')
 
         self.st_send = scrolledtext.ScrolledText(self.gui,
             wrap = WORD,
@@ -77,40 +133,45 @@ class Messenger:
         self.st_send.grid(row = 1, column = 0)
         self.st_send.focus()
 
-        butt_send = Button(self.gui, text = 'Send', command = self.send_message_thread)
+        butt_send = Button(self.gui, text = 'Send', command = self.send_message)
         butt_send.grid(row = 3, column = 0)
-
-        t = threading.Thread(target=self.recv_message, args=())
-        t.start()
 
         self.gui.protocol('WM_DELETE_WINDOW', self.close_window)
 
+    def run(self):
         self.gui.mainloop()
-
-    def send_message_thread(self):
-        t = threading.Thread(target=self.send_message, args=())
-        t.start()
 
     def send_message(self):
         text = self.st_send.get('1.0', END)
         self.st_send.delete('1.0', END)
         if text == '\n':
             return
-        self.s_send.send(b'TEXT ' + text.encode())
+        response = self.username + ' ' + text
+        self.s_send.send(self.roomName.encode() + b' MSG ' + response.encode())
         self.s_send.recv(1024)
 
-    def recv_message(self):
-        while True:
-            msg = self.s_recv.recv(1024).decode()
-            self.s_recv.send(b'OK')
-            msg = msg.split(' ', 1)
-            
-            self.st_recv.configure(state = 'normal')
-            self.st_recv.insert(INSERT, msg[0] + ' ', 'user')
-            self.st_recv.insert(INSERT, msg[1], 'msg')
-            self.st_recv.configure(state = 'disabled')
+    def recv_message(self, msg):
+        msg = msg.split(' ', 1)
+        
+        self.st_recv.configure(state = 'normal')
+        if msg[0] == 'MSG':
+            m = msg[1].split(' ', 1)
+            self.st_recv.insert(INSERT, '@' + m[0] + ': ', 'user')
+            self.st_recv.insert(INSERT, m[1], 'msg')
+        elif msg[0] == 'NOTI':
+            self.st_recv.insert(INSERT, msg[1] + '\n', 'notif')
+        self.st_recv.configure(state = 'disabled')
+        self.st_recv.see('end')
 
-            self.st_recv.see('end')
+    def close_window(self):
+        pass
+
+class MainRoom(Messenger):
+    def __init__(self, s_send, roomName, addRoom, recvFunc, arguments):
+        super(MainRoom, self).__init__(s_send, roomName)
+        self.addRoom = addRoom
+        t = threading.Thread(target=recvFunc, args=arguments)
+        t.start()
 
     def close_window(self):
         self.s_send.send(b'QUIT')
@@ -130,23 +191,32 @@ def main():
     s_send = socket.socket()
     s_send.connect((host, port))
     
-    log_in = LogIn(login)
-    if not log_in.run():
+    log_in = LogIn(s_send)
+    username = log_in.run()
+    if username == '':
         return
+
+    Messenger.username = username
+
+    s_send.send(b'CONN')
+    s_recv = socket.socket()
+    addr = s_send.recv(1024).decode()
+    addr = addr.split(' ')
+    s_recv.connect((addr[0], int(addr[1])))
 
     rooms = {}
     rlist = RoomList(rooms)
-    # rooms['all'] = Messenger(s_send, rlist.addRoom)
-    # rooms['all'].run()
-    # 
+    rooms['all'] = MainRoom(s_send, 'all', rlist.addRoom, recv_message, (rooms, s_recv))
+    rooms['all'].run()
 
-    m = Messenger(s_send)
-    m.run()
-
-def login(username, password):
-    if username == 'admin' and password == 'admin':
-        return True
-    return False
+def recv_message(rooms, s_recv):
+    while True:
+        msg = s_recv.recv(1024).decode()
+        if msg == 'QUIT':
+            break
+        s_recv.send(b'OK')
+        msg = msg.split(' ', 1)
+        rooms[msg[0]].recv_message(msg[1])
 
 if __name__ == "__main__":
     main()
