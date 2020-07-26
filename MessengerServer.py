@@ -47,9 +47,6 @@ def clientHandler(conn):
                     break
                 uname, pword = response.split('\n')[0], response.split('\n')[1]
                 if checkSignup(uname, pword):
-                    users[uname] = pword
-                    with open('users.dat', 'a') as f:
-                        f.write(uname + ' ' + pword + '\n')
                     conn.send(b'OK')
                     break
                 else:
@@ -57,7 +54,6 @@ def clientHandler(conn):
             continue
         uname, pword = response.split('\n')[0], response.split('\n')[1]
         if checkLogin(uname, pword):
-            online_users[uname] = True
             username = uname
             conn.send(b'OK')
             break
@@ -74,7 +70,6 @@ def clientHandler(conn):
     response = conn.getsockname()[0] + ' ' + str(addr[1])
     conn.send(response.encode())
     s_recv, addr = s.accept()
-
     rooms['all'][s_recv] = True
 
     while True:
@@ -82,11 +77,14 @@ def clientHandler(conn):
         if msg == 'QUIT':
             break
         conn.send(b'OK')
-        msg = msg.split(' ', 2)
-        distribute_msg(msg)
+        # kiểm tra nếu là request
 
-    s_recv.send(b'QUIT')
+        parse = msg.split(' ', 2)
+        if parse[1] == 'MSG':
+            distribute_msg(msg)
+
     rooms['all'].pop(s_recv)
+    s_recv.send(b'QUIT')
     online_users.pop(username)
     s_recv.close()
     s.close()
@@ -95,15 +93,16 @@ def clientHandler(conn):
     distribute_noti('@' + username + ' log off')
 
 def distribute_msg(msg):
-    room = msg[0]
+    room = msg.split(' ', 1)[0]
     for c in rooms[room]:
-        response = room + ' MSG ' + msg[2]
-        c.send(response.encode())
+        c.send(msg.encode())
+        c.recv(1024)
 
 def distribute_noti(msg):
     for c in rooms['all']:
         response = 'all NOTI ' + msg
         c.send(response.encode())
+        c.recv(1024)
 
 def checkLogin(uname, pword):
     if uname not in users:
@@ -112,11 +111,17 @@ def checkLogin(uname, pword):
         return False
     if uname in online_users:
         return False
+    
+    online_users[uname] = True
     return True
 
 def checkSignup(uname, pword):
     if uname in users:
         return False
+
+    users[uname] = pword
+    with open('users.dat', 'a') as f:
+        f.write(uname + ' ' + pword + '\n')
     return True
 
 if __name__ == "__main__":

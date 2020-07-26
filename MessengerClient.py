@@ -8,7 +8,7 @@ class SignUp:
     def __init__(self, s_send):
         self.s_send = s_send
         self.gui = Tk()
-        self.gui.title('Sign UP')
+        self.gui.title('Sign Up')
         self.gui.resizable(False, False)
 
         l_username = Label(self.gui, text = 'UserName')
@@ -121,6 +121,7 @@ class Messenger:
             font = ('consolas', 12))
         self.st_recv.grid(row = 0, column = 0)
         self.st_recv.configure(state = 'disabled')
+
         self.st_recv.tag_config('user', foreground = 'red')
         self.st_recv.tag_config('msg', foreground = 'blue')
         self.st_recv.tag_config('notif', foreground = 'green')
@@ -167,11 +168,9 @@ class Messenger:
         pass
 
 class MainRoom(Messenger):
-    def __init__(self, s_send, roomName, addRoom, recvFunc, arguments):
+    def __init__(self, s_send, roomName, addRoom):
         super(MainRoom, self).__init__(s_send, roomName)
         self.addRoom = addRoom
-        t = threading.Thread(target=recvFunc, args=arguments)
-        t.start()
 
     def close_window(self):
         self.s_send.send(b'QUIT')
@@ -205,8 +204,12 @@ def main():
     s_recv.connect((addr[0], int(addr[1])))
 
     rooms = {}
+
+    t = threading.Thread(target=recv_message, args=(rooms, s_recv))
+    t.start()
+
     rlist = RoomList(rooms)
-    rooms['all'] = MainRoom(s_send, 'all', rlist.addRoom, recv_message, (rooms, s_recv))
+    rooms['all'] = MainRoom(s_send, 'all', rlist.addRoom)
     rooms['all'].run()
 
 def recv_message(rooms, s_recv):
@@ -216,7 +219,8 @@ def recv_message(rooms, s_recv):
             break
         s_recv.send(b'OK')
         msg = msg.split(' ', 1)
-        rooms[msg[0]].recv_message(msg[1])
+        if msg[0] in rooms:
+            rooms[msg[0]].recv_message(msg[1])
 
 if __name__ == "__main__":
     main()
