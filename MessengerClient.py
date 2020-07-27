@@ -141,6 +141,7 @@ class Messenger:
 
     def run(self):
         self.gui.mainloop()
+        x = 1
 
     def send_message(self):
         text = self.st_send.get('1.0', END)
@@ -165,23 +166,52 @@ class Messenger:
         self.st_recv.see('end')
 
     def close_window(self):
-        pass
+        self.s_send.send(b'PRIVCHAT')
+        self.s_send.recv(1024)
+        self.s_send.send(b'DEL\n')
+        self.s_send.recv(1024)
+        self.s_send.send(self.roomName.encode())
+        self.s_send.recv(1024)
+    
+    def _close_window(self):
+        self.gui.destroy()
 
 class MainRoom(Messenger):
-    def __init__(self, s_send, roomName, addRoom):
+    def __init__(self, s_send, roomName):
         super(MainRoom, self).__init__(s_send, roomName)
-        self.addRoom = addRoom
+
+        self.e_priv_chat = Entry(self.gui, width = 15)
+        self.e_priv_chat.grid(row = 0, column = 1, sticky = W)
+        butt_priv_chat = Button(self.gui, text = 'Chat', command = self.priv_chat)
+        butt_priv_chat.grid(row = 0, column = 2, sticky = W)
+
+    def priv_chat(self):
+        self.s_send.send(b'PRIVCHAT')
+        self.s_send.recv(1024)
+        peer = self.e_priv_chat.get()
+        self.s_send.send(peer.encode())
+        if self.s_send.recv(1024) == b'NO':
+            messagebox.showerror('Error', 'User has not logged in yet!')
 
     def close_window(self):
         self.s_send.send(b'QUIT')
         self.gui.destroy()
 
 class RoomList:
-    def __init__(self, rooms):
-        self.rooms = rooms
+    rooms = {}
+    s_send = None
 
-    def addRoom(self):
-        pass
+    def addRoom(self, roomName):
+        t = threading.Thread(target=self.createRoom_thread, args=(roomName,))
+        t.start()
+
+    def createRoom_thread(self, roomName):
+        self.rooms[roomName[0]] = Messenger(self.s_send, roomName[0])
+        self.rooms[roomName[0]].run()
+
+    def delRoom(self, roomName):
+        self.rooms[roomName].gui.destroy()
+        self.rooms.pop(roomName)
 
 def main():
     host = '127.0.0.1'
@@ -204,12 +234,13 @@ def main():
     s_recv.connect((addr[0], int(addr[1])))
 
     rooms = {}
+    RoomList.rooms = rooms
+    RoomList.s_send = s_send
 
     t = threading.Thread(target=recv_message, args=(rooms, s_recv))
     t.start()
 
-    rlist = RoomList(rooms)
-    rooms['all'] = MainRoom(s_send, 'all', rlist.addRoom)
+    rooms['all'] = MainRoom(s_send, 'all')
     rooms['all'].run()
 
 def recv_message(rooms, s_recv):
@@ -218,9 +249,26 @@ def recv_message(rooms, s_recv):
         if msg == 'QUIT':
             break
         s_recv.send(b'OK')
+        if msg == 'PRIVCHAT':
+            priv_chat(s_recv)
+            continue
+
         msg = msg.split(' ', 1)
         if msg[0] in rooms:
             rooms[msg[0]].recv_message(msg[1])
+
+def priv_chat(s_recv):
+    roomName = s_recv.recv(1024).decode()
+    s_recv.send(b'OK')
+    if roomName == 'QUIT':
+        roomName = s_recv.recv(1024).decode()
+        s_recv.send(b'OK')
+        rlist = RoomList()
+        rlist.delRoom(roomName)
+        return
+    roomName = roomName.split(' ', 1)
+    rlist = RoomList()
+    rlist.addRoom(roomName)
 
 if __name__ == "__main__":
     main()

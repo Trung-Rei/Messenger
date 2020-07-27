@@ -70,20 +70,22 @@ def clientHandler(conn):
     response = conn.getsockname()[0] + ' ' + str(addr[1])
     conn.send(response.encode())
     s_recv, addr = s.accept()
-    rooms['all'][s_recv] = True
+    rooms['all'][username] = s_recv
 
     while True:
         msg = conn.recv(1024).decode()
         if msg == 'QUIT':
             break
         conn.send(b'OK')
-        # kiểm tra nếu là request
+        if msg == 'PRIVCHAT':
+            create_pri_chat(conn, s_recv, username)
+            continue
 
         parse = msg.split(' ', 2)
         if parse[1] == 'MSG':
             distribute_msg(msg)
 
-    rooms['all'].pop(s_recv)
+    rooms['all'].pop(username)
     s_recv.send(b'QUIT')
     online_users.pop(username)
     s_recv.close()
@@ -94,15 +96,51 @@ def clientHandler(conn):
 
 def distribute_msg(msg):
     room = msg.split(' ', 1)[0]
-    for c in rooms[room]:
-        c.send(msg.encode())
-        c.recv(1024)
+    r = rooms[room]
+    for c in r:
+        r[c].send(msg.encode())
+        r[c].recv(1024)
 
 def distribute_noti(msg):
-    for c in rooms['all']:
+    r = rooms['all']
+    for c in r:
         response = 'all NOTI ' + msg
-        c.send(response.encode())
-        c.recv(1024)
+        r[c].send(response.encode())
+        r[c].recv(1024)
+
+def create_pri_chat(s_send, s_recv, username):
+    uname = s_send.recv(1024).decode()
+    if uname == 'DEL\n':
+        s_send.send(b'OK')
+        roomName = s_send.recv(1024).decode()
+        s_send.send(b'OK')
+        r = rooms[roomName]
+        for c in r:
+            r[c].send(b'PRIVCHAT')
+            r[c].recv(1024)
+            r[c].send(b'QUIT')
+            r[c].recv(1024)
+            r[c].send(roomName.encode())
+            r[c].recv(1024)
+        rooms.pop(roomName)
+        return
+
+    if not uname in online_users:
+        s_send.send(b'NO')
+    else:
+        s_send.send(b'OK')
+
+        roomName = username + '\n' + uname
+        rooms[roomName] = {}
+        rooms[roomName][username] = s_recv
+        rooms[roomName][uname] = rooms['all'][uname]
+
+        r = rooms[roomName]
+        for c in r:
+            r[c].send(b'PRIVCHAT')
+            r[c].recv(1024)
+            r[c].send(roomName.encode() + b' @' + username.encode() + b' + @' + uname.encode())
+            r[c].recv(1024)
 
 def checkLogin(uname, pword):
     if uname not in users:
