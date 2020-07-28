@@ -74,11 +74,13 @@ def clientHandler(conn):
 
     while True:
         msg = conn.recv(1024).decode()
+        conn.send(b'OK')
+
         if msg == 'QUIT':
             break
-        conn.send(b'OK')
+
         if msg == 'PRIVCHAT':
-            create_pri_chat(conn, s_recv, username)
+            pri_chat(conn, s_recv, username)
             continue
 
         parse = msg.split(' ', 2)
@@ -108,12 +110,15 @@ def distribute_noti(msg):
         r[c].send(response.encode())
         r[c].recv(1024)
 
-def create_pri_chat(s_send, s_recv, username):
+def pri_chat(s_send, s_recv, username):
     uname = s_send.recv(1024).decode()
+
     if uname == 'DEL\n':
         s_send.send(b'OK')
+
         roomName = s_send.recv(1024).decode()
         s_send.send(b'OK')
+        
         r = rooms[roomName]
         for c in r:
             r[c].send(b'PRIVCHAT')
