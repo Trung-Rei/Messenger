@@ -149,6 +149,11 @@ class Messenger:
         butt_browse = Button(self.gui, text = '...', command = self.browse)
         butt_browse.grid(row = 3, column = 1)
 
+        self.e_download = Entry(self.gui, width = 15)
+        self.e_download.grid(row = 4, column = 0)
+        butt_download = Button(self.gui, text = 'Download', command = self.download)
+        butt_download.grid(row = 4, column = 2)
+
     def run(self):
         self.gui.mainloop()
 
@@ -172,10 +177,10 @@ class Messenger:
         self.st_recv.configure(state = 'normal')
         if msg[0] == 'MSG':
             m = msg[1].split(' ', 1)
-            self.st_recv.insert(INSERT, '@' + m[0] + ': ', 'user')
-            self.st_recv.insert(INSERT, m[1], 'msg')
+            self.st_recv.insert(END, '@' + m[0] + ': ', 'user')
+            self.st_recv.insert(END, m[1], 'msg')
         elif msg[0] == 'NOTI':
-            self.st_recv.insert(INSERT, msg[1] + '\n', 'notif')
+            self.st_recv.insert(END, msg[1] + '\n', 'notif')
         self.st_recv.configure(state = 'disabled')
         self.st_recv.see('end')
 
@@ -225,6 +230,44 @@ class Messenger:
         filename = filedialog.askopenfilename(initialdir = "/",title = "Select file",filetypes = (("all files","*.*"),))
         self.e_upload.delete(0, END)
         self.e_upload.insert(0, filename)
+
+    def download(self):
+        fname = self.e_download.get()
+        self.s_send.send(b'DOWNLOAD')
+        self.s_send.recv(1024)
+        self.s_send.send(self.roomName.encode() + b' ' + fname.encode())
+        response = self.s_send.recv(1024).decode()
+        if response == 'NO':
+            messagebox.showerror('Error', 'File not found!')
+            return
+        self.s_send.send(b'OK')
+        s_down = socket.socket()
+        addr = self.s_send.recv(1024).decode()
+        addr = addr.split(' ')
+        s_down.connect((addr[0], int(addr[1])))
+        t = threading.Thread(target=self.download_thread, args=(s_down,))
+        t.start()
+
+    def download_thread(self, s_down):
+        fsize = s_down.recv(1024)
+        fsize = int(fsize)
+        fname = filedialog.asksaveasfilename(initialdir = "/",title = "Select file",filetypes = (("all files","*.*"),))
+        if fname == '':
+            s_down.send(b'QUIT')
+            return
+        s_down.send(b'OK')
+
+        self.recv_message('NOTI Downloading...')
+        f = open(fname, 'wb')
+        data = s_down.recv(1048576)
+        totalRecv = len(data)
+        f.write(data)
+        while totalRecv < fsize:
+            data = s_down.recv(1048576)
+            totalRecv += len(data)
+            f.write(data)
+        f.close()
+        self.recv_message('NOTI Download completed.')
 
 class MainRoom(Messenger):
     def __init__(self, s_send, roomName):

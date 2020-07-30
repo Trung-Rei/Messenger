@@ -88,6 +88,10 @@ def clientHandler(conn):
             upload(conn, username)
             continue
 
+        if msg == 'DOWNLOAD':
+            download(conn)
+            continue
+
         parse = msg.split(' ', 2)
         if parse[1] == 'MSG':
             distribute_msg(msg)
@@ -213,6 +217,53 @@ def upload_thread(s_up, s, username):
 
     response = username + ' upload a file: ' + fname.split('+', 1)[1] + '\n'
     distribute_msg(rname + ' MSG ' + response)
+
+def download(s_send):
+    rname = s_send.recv(1024).decode()
+    rname = rname.split(' ', 1)
+    fname = rname[1]
+    rname = rname[0]
+    if rname != 'all':
+        rname = rname.split('\n')
+        rname = rname[0] + ' ' + rname[1]
+    
+    if os.path.isfile('uploads/' + rname + '+' + fname):
+        s_send.send(b'OK')
+    else:
+        s_send.send(b'NO')
+        return
+    
+    s_send.recv(1024)
+    s = socket.socket()
+    s.bind(('', 0))
+    s.listen(1)
+    addr = s.getsockname()
+    response = s_send.getsockname()[0] + ' ' + str(addr[1])
+    s_send.send(response.encode())
+    s_recv, addr = s.accept()
+
+    t = threading.Thread(target=download_thread, args=(s_recv, s, rname + '+' + fname))
+    t.start()
+
+def download_thread(s_down, s, fname):
+    fsize = os.path.getsize('uploads/' + fname)
+    s_down.send(str(fsize).encode())
+    if s_down.recv(1024) == b'QUIT':
+        s_down.close()
+        s.close()
+        return
+    
+    with open('uploads/' + fname, 'rb') as f:
+        bytesToSend = f.read(1048576)
+        s_down.send(bytesToSend)
+        totalSend = len(bytesToSend)
+        while bytesToSend != b'':
+            bytesToSend = f.read(1048576)
+            s_down.send(bytesToSend)
+            totalSend += len(bytesToSend)
+
+    s_down.close()
+    s.close()
 
 def checkLogin(uname, pword):
     if uname not in users:
