@@ -1,8 +1,10 @@
 from tkinter import *
 from tkinter import scrolledtext
 from tkinter import messagebox
+from tkinter import filedialog
 import socket
 import threading
+import os
 
 class SignUp:
     def __init__(self, s_send):
@@ -136,9 +138,16 @@ class Messenger:
         self.st_send.focus()
 
         butt_send = Button(self.gui, text = 'Send', command = self.send_message)
-        butt_send.grid(row = 3, column = 0)
+        butt_send.grid(row = 2, column = 0)
 
         self.gui.protocol('WM_DELETE_WINDOW', self.close_window)
+
+        self.e_upload = Entry(self.gui, width = 15)
+        self.e_upload.grid(row = 3, column = 0)
+        butt_upload = Button(self.gui, text = 'Upload', command = self.upload)
+        butt_upload.grid(row = 3, column = 2)
+        butt_browse = Button(self.gui, text = '...', command = self.browse)
+        butt_browse.grid(row = 3, column = 1)
 
     def run(self):
         self.gui.mainloop()
@@ -181,6 +190,42 @@ class Messenger:
 
         self.gui.destroy()
     
+    def upload(self):
+        filename = self.e_upload.get()
+        if filename == '':
+            return
+        self.s_send.send(b'UPLOAD')
+        self.s_send.recv(1024)
+        self.s_send.send(b'OK')
+        s_up = socket.socket()
+        addr = self.s_send.recv(1024).decode()
+        addr = addr.split(' ')
+        s_up.connect((addr[0], int(addr[1])))
+        t = threading.Thread(target=self.upload_thread, args=(s_up, filename))
+        t.start()
+
+    def upload_thread(self, s_up, filename):
+        filesize = os.path.getsize(filename)
+        s_up.send(self.roomName.encode() + b' ' + filename.split('/')[-1].encode())
+        s_up.recv(1024)
+        s_up.send(str(filesize).encode())
+        s_up.recv(1024)
+
+        self.recv_message('NOTI Uploading file...')
+        with open(filename, 'rb') as f:
+            bytesToSend = f.read(1048576)
+            s_up.send(bytesToSend)
+            totalSend = len(bytesToSend)
+            while bytesToSend != b'':
+                bytesToSend = f.read(1048576)
+                s_up.send(bytesToSend)
+                totalSend += len(bytesToSend)
+
+    def browse(self):
+        filename = filedialog.askopenfilename(initialdir = "/",title = "Select file",filetypes = (("all files","*.*"),))
+        self.e_upload.delete(0, END)
+        self.e_upload.insert(0, filename)
+
 class MainRoom(Messenger):
     def __init__(self, s_send, roomName):
         super(MainRoom, self).__init__(s_send, roomName)

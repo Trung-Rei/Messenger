@@ -1,5 +1,6 @@
 import socket
 import threading
+import os
 
 rooms = {}
 users = {}
@@ -83,6 +84,10 @@ def clientHandler(conn):
             pri_chat(conn, s_recv, username)
             continue
 
+        if msg == 'UPLOAD':
+            upload(conn, username)
+            continue
+
         parse = msg.split(' ', 2)
         if parse[1] == 'MSG':
             distribute_msg(msg)
@@ -95,6 +100,14 @@ def clientHandler(conn):
     conn.close()
 
     distribute_noti('@' + username + ' log off')
+
+    if len(rooms['all']) == 0:
+        for r, d, f in os.walk('uploads'):
+            for i in f:
+                room = i.split('+', 1)[0]
+                if room == 'all':
+                    os.remove('uploads/' + i)
+            break
 
 def distribute_msg(msg):
     room = msg.split(' ', 1)[0]
@@ -128,6 +141,17 @@ def pri_chat(s_send, s_recv, username):
             r[c].send(roomName.encode())
             r[c].recv(1024)
         rooms.pop(roomName)
+        
+        for r, d, f in os.walk('uploads'):
+            for i in f:
+                room = i.split('+', 1)[0]
+                if room == 'all':
+                    continue
+                room = room.split(' ')
+                room = room[0] + '\n' + room[1]
+                if room == roomName:
+                    os.remove('uploads/' + i)
+            break
         return
 
     if not uname in online_users:
@@ -146,6 +170,49 @@ def pri_chat(s_send, s_recv, username):
             r[c].recv(1024)
             r[c].send(roomName.encode() + b' @' + username.encode() + b' + @' + uname.encode())
             r[c].recv(1024)
+
+def upload(s_send, username):
+    s_send.recv(1024)
+    s = socket.socket()
+    s.bind(('', 0))
+    s.listen(1)
+    addr = s.getsockname()
+    response = s_send.getsockname()[0] + ' ' + str(addr[1])
+    s_send.send(response.encode())
+    s_recv, addr = s.accept()
+    t = threading.Thread(target=upload_thread, args=(s_recv, s, username))
+    t.start()
+
+def upload_thread(s_up, s, username):
+    response = s_up.recv(1024).decode()
+    s_up.send(b'OK')
+    response = response.split(' ', 1)
+    rname = response[0]
+    fname = response[1]
+    response = s_up.recv(1024).decode()
+    s_up.send(b'OK')
+    fsize = int(response)
+
+    if rname == 'all':
+        fname = 'all+' + fname
+    else:
+        fname = rname.split('\n')[0] + ' ' + rname.split('\n')[1] + '+' + fname
+    
+    f = open('uploads/' + fname, 'wb')
+    data = s_up.recv(1048576)
+    totalRecv = len(data)
+    f.write(data)
+    while totalRecv < fsize:
+        data = s_up.recv(1048576)
+        totalRecv += len(data)
+        f.write(data)
+    f.close()
+
+    s_up.close()
+    s.close()
+
+    response = username + ' upload a file: ' + fname.split('+', 1)[1] + '\n'
+    distribute_msg(rname + ' MSG ' + response)
 
 def checkLogin(uname, pword):
     if uname not in users:
