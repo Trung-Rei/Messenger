@@ -2,9 +2,9 @@ import socket
 import threading
 import os
 
-rooms = {} # Store current chat rooms
-users = {} # Store all accounts that have been signed up
-online_users = {} # store current online accounts
+rooms = {} # current chat rooms
+users = {} # all accounts that have been signed up
+online_users = {} # current online accounts
 
 def main():
     host = ''
@@ -16,7 +16,7 @@ def main():
     s.listen(10)
 
     rooms['all'] = {} # the main room for all accounts
-    loadUsers() # load data from account database
+    loadUsers()
 
     print("Server Started.")
     while True:
@@ -38,20 +38,20 @@ def loadUsers():
 
 def clientHandler(conn):
     """
-    handle an individual client host with multithreading
+    handle an individual client with threading
     """
     
     # handle log in and sign up
     username = ''
-    conn.recv(1024)
+    conn.recv(1024) # 'LOGIN'
     while True:
-        response = conn.recv(1024).decode()
+        response = conn.recv(1024).decode() # ['<uname> <pword>', 'QUIT', 'SIGNUP']
         if response == 'QUIT':
             conn.close()
             return
         if response == 'SIGNUP':
             while True:
-                response = conn.recv(1024).decode()
+                response = conn.recv(1024).decode() # ['<uname> <pword>', 'QUIT']
                 if response == 'QUIT':
                     break
                 uname, pword = response.split('\n')[0], response.split('\n')[1]
@@ -63,17 +63,16 @@ def clientHandler(conn):
             continue
         uname, pword = response.split('\n')[0], response.split('\n')[1]
         if checkLogin(uname, pword):
-            username = uname
+            username = uname # save the current username of this client
             conn.send(b'OK')
             break
         else:
             conn.send(b'NO')
 
-    # send notification to all clients
     distribute_noti('@' + username + ' log in')
 
     # create another socket for sending message to client
-    conn.recv(1024)
+    conn.recv(1024) # 'CONN'
     s = socket.socket()
     s.bind(('', 0))
     s.listen(1)
@@ -87,13 +86,14 @@ def clientHandler(conn):
     # receive requests and messages from client and handle each one
     while True:
         msg = conn.recv(1024).decode()
-        conn.send(b'OK')
-
+        
         if msg == 'QUIT':
             break
+        
+        conn.send(b'OK')
 
         if msg == 'PRIVCHAT':
-            pri_chat(conn, s_recv, username)
+            pri_chat(conn, username)
             continue
 
         if msg == 'UPLOAD':
@@ -116,10 +116,9 @@ def clientHandler(conn):
     s.close()
     conn.close()
 
-    # send notification to all clients
     distribute_noti('@' + username + ' log off')
 
-    # remove all files belong to general room
+    # remove all files belong to general room when nobody is online
     if len(rooms['all']) == 0:
         for r, d, f in os.walk('uploads'):
             for i in f:
@@ -137,44 +136,44 @@ def distribute_msg(msg):
     r = rooms[room]
     for c in r:
         r[c].send(msg.encode())
-        r[c].recv(1024)
+        r[c].recv(1024) # 'OK'
 
 def distribute_noti(msg):
     """
-    distribute notifications to general room
+    distribute notifications to all clients
     """
     
     r = rooms['all']
     for c in r:
         response = 'all NOTI ' + msg
         r[c].send(response.encode())
-        r[c].recv(1024)
+        r[c].recv(1024) # 'OK'
 
-def pri_chat(s_send, s_recv, username):
+def pri_chat(s_send, username):
     """
     handle private chat request
     """
     
     uname = s_send.recv(1024).decode()
 
-    if uname == 'DEL\n':
+    if uname == 'DEL\n': # client request to delete room
         s_send.send(b'OK')
 
         roomName = s_send.recv(1024).decode()
         s_send.send(b'OK')
         
-        # send quit command to all client in roomName and delete room
+        # send quit command to all clients in roomName
         r = rooms[roomName]
         for c in r:
             r[c].send(b'PRIVCHAT')
-            r[c].recv(1024)
+            r[c].recv(1024) # 'OK'
             r[c].send(b'QUIT')
-            r[c].recv(1024)
+            r[c].recv(1024) # 'OK'
             r[c].send(roomName.encode())
-            r[c].recv(1024)
+            r[c].recv(1024) # 'OK'
         rooms.pop(roomName)
         
-        # remove all files belong to room: roomName
+        # remove all files belong to roomName
         for r, d, f in os.walk('uploads'):
             for i in f:
                 room = i.split('+', 1)[0]
@@ -187,6 +186,7 @@ def pri_chat(s_send, s_recv, username):
             break
         return
 
+    # create new room
     if not uname in online_users:
         s_send.send(b'NO')
     else:
@@ -195,24 +195,24 @@ def pri_chat(s_send, s_recv, username):
         # create room
         roomName = username + '\n' + uname
         rooms[roomName] = {}
-        rooms[roomName][username] = s_recv
+        rooms[roomName][username] = rooms['all'][username]
         rooms[roomName][uname] = rooms['all'][uname]
 
         # send command create room to all client in room
         r = rooms[roomName]
         for c in r:
             r[c].send(b'PRIVCHAT')
-            r[c].recv(1024)
+            r[c].recv(1024) # 'OK'
             r[c].send(roomName.encode() + b' @' + username.encode() + b' + @' + uname.encode())
-            r[c].recv(1024)
+            r[c].recv(1024) # 'OK'
 
 def upload(s_send, username):
     """
     handle upload request
     """
 
-    # create another socket for sending file
-    s_send.recv(1024)
+    # create another socket for receiving file
+    s_send.recv(1024) # 'OK'
     s = socket.socket()
     s.bind(('', 0))
     s.listen(1)
@@ -220,6 +220,7 @@ def upload(s_send, username):
     response = s_send.getsockname()[0] + ' ' + str(addr[1])
     s_send.send(response.encode())
     s_recv, addr = s.accept()
+
     t = threading.Thread(target=upload_thread, args=(s_recv, s, username))
     t.start()
 
@@ -237,6 +238,7 @@ def upload_thread(s_up, s, username):
     s_up.send(b'OK')
     fsize = int(response)
 
+    # choose appropiate file name
     if rname == 'all':
         fname = 'all+' + fname
     else:
@@ -255,7 +257,7 @@ def upload_thread(s_up, s, username):
     s_up.close()
     s.close()
 
-    response = username + ' upload a file: ' + fname.split('+', 1)[1] + '\n'
+    response = username + ' upload a file: ' + fname.split('+', 1)[1]
     distribute_msg(rname + ' MSG ' + response)
 
 def download(s_send):
@@ -271,6 +273,7 @@ def download(s_send):
         rname = rname.split('\n')
         rname = rname[0] + ' ' + rname[1]
     
+    # check if requested file is existed
     if os.path.isfile('uploads/' + rname + '+' + fname):
         s_send.send(b'OK')
     else:
@@ -278,7 +281,7 @@ def download(s_send):
         return
     
     # create another socket for sending file
-    s_send.recv(1024)
+    s_send.recv(1024) # 'OK'
     s = socket.socket()
     s.bind(('', 0))
     s.listen(1)
@@ -338,6 +341,8 @@ def checkSignup(uname, pword):
         return False
 
     users[uname] = pword
+
+    # add this account to database
     with open('users.dat', 'a') as f:
         f.write(uname + ' ' + pword + '\n')
     return True
