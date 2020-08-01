@@ -7,12 +7,17 @@ import threading
 import os
 
 class SignUp:
+    """
+    this class handles sign up function
+    """
+
     def __init__(self, s_send):
         self.s_send = s_send
         self.gui = Tk()
         self.gui.title('Sign Up')
         self.gui.resizable(False, False)
 
+        # initilize the gui
         l_username = Label(self.gui, text = 'UserName')
         l_username.grid(row = 0, column = 0, sticky = W)
         self.e_username = Entry(self.gui, width = 30)
@@ -20,7 +25,7 @@ class SignUp:
         
         l_password = Label(self.gui, text = 'Password')
         l_password.grid(row = 1, column = 0, sticky = W)
-        self.e_password = Entry(self.gui, width = 30)
+        self.e_password = Entry(self.gui, width = 30, show = '*')
         self.e_password.grid(row = 1, column = 1, sticky = W)
         
         butt_login = Button(self.gui, text = 'Sign Up', command = self.signup)
@@ -39,6 +44,10 @@ class SignUp:
         messagebox.showerror('Error', 'Username has already been taken!')
 
     def signupFunc(self):
+        """
+        return True if successfully sign up
+        """
+
         username = self.e_username.get()
         password = self.e_password.get()
         self.s_send.send(username.encode() + b'\n' + password.encode())
@@ -51,6 +60,8 @@ class SignUp:
         self.gui.destroy()
 
 class LogIn:
+    """this class handles log in function"""
+
     def __init__(self, s_send):
         self.s_send = s_send
         self.username = ''
@@ -58,6 +69,7 @@ class LogIn:
         self.gui.title('Log In')
         self.gui.resizable(False, False)
 
+        # initilize the gui
         l_username = Label(self.gui, text = 'UserName')
         l_username.grid(row = 0, column = 0, sticky = W)
         self.e_username = Entry(self.gui, width = 30)
@@ -77,6 +89,9 @@ class LogIn:
         self.gui.protocol('WM_DELETE_WINDOW', self.close_window)
 
     def run(self):
+        """return the username that has been logged in,
+        return empty string if user exit"""
+
         self.s_send.send(b'LOGIN')
         self.gui.mainloop()
         return self.username
@@ -90,6 +105,8 @@ class LogIn:
             \nor user has already logged in!')
 
     def loginFunc(self):
+        """return username if log in successful, else return empty string"""
+
         username = self.e_username.get()
         password = self.e_password.get()
         self.s_send.send(username.encode() + b'\n' + password.encode())
@@ -98,6 +115,8 @@ class LogIn:
         return ''
 
     def signup(self):
+        """do the sign up function"""
+
         sign_up = SignUp(self.s_send)
         sign_up.run()
 
@@ -105,16 +124,19 @@ class LogIn:
         self.s_send.send(b'QUIT')
         self.gui.destroy()
 
-class Messenger:
-    username = 'noname'
+class Room:
+    """this class handles a chat room,
+    contains functions for chat features"""
+
+    username = 'noname' # the account is logging in
 
     def __init__(self, s_send, roomName):
         self.s_send = s_send
-        self.roomName = roomName[0]
-        self.isActive = True
+        self.roomName = roomName[0] # room code to distinguish with other rooms
+        self.isActive = True # True if the room is existed on server
 
         self.gui = Tk()
-        self.gui.title(roomName[1])
+        self.gui.title(roomName[1]) # room's title
         self.gui.resizable(False, False)
 
         self.st_recv = scrolledtext.ScrolledText(self.gui,
@@ -158,6 +180,8 @@ class Messenger:
         self.gui.mainloop()
 
     def send_message(self):
+        """send messages to server"""
+
         if not self.isActive:
             messagebox.showerror('Error', 'Remote user has closed this chat!')
             self.gui.destroy()
@@ -165,13 +189,17 @@ class Messenger:
 
         text = self.st_send.get('1.0', END)
         self.st_send.delete('1.0', END)
-        if text == '\n':
+        text = text[:-1]
+        if text == '':
             return
         response = self.username + ' ' + text
+        # response: <room> MSG <user who send> <message>
         self.s_send.send(self.roomName.encode() + b' MSG ' + response.encode())
         self.s_send.recv(1024)
 
     def recv_message(self, msg):
+        """parse messages and show them in chat box"""
+
         msg = msg.split(' ', 1)
         
         self.st_recv.configure(state = 'normal')
@@ -180,11 +208,14 @@ class Messenger:
             self.st_recv.insert(END, '@' + m[0] + ': ', 'user')
             self.st_recv.insert(END, m[1], 'msg')
         elif msg[0] == 'NOTI':
-            self.st_recv.insert(END, msg[1] + '\n', 'notif')
+            self.st_recv.insert(END, msg[1], 'notif')
+        self.st_recv.insert(END, '\n')
         self.st_recv.configure(state = 'disabled')
         self.st_recv.see('end')
 
     def close_window(self):
+        """send delete room request to server and quit room"""
+
         if self.isActive:
             self.s_send.send(b'PRIVCHAT')
             self.s_send.recv(1024)
@@ -196,20 +227,32 @@ class Messenger:
         self.gui.destroy()
     
     def upload(self):
+        """handle upload request"""
+
+        if not self.isActive:
+            messagebox.showerror('Error', 'Remote user has closed this chat!')
+            self.gui.destroy()
+            return
+
         filename = self.e_upload.get()
         if filename == '':
             return
+
         self.s_send.send(b'UPLOAD')
         self.s_send.recv(1024)
         self.s_send.send(b'OK')
-        s_up = socket.socket()
+
+        s_up = socket.socket() # this socket for sending file
         addr = self.s_send.recv(1024).decode()
         addr = addr.split(' ')
         s_up.connect((addr[0], int(addr[1])))
+
         t = threading.Thread(target=self.upload_thread, args=(s_up, filename))
         t.start()
 
     def upload_thread(self, s_up, filename):
+        """handle sending file in a separated thread"""
+
         filesize = os.path.getsize(filename)
         s_up.send(self.roomName.encode() + b' ' + filename.split('/')[-1].encode())
         s_up.recv(1024)
@@ -227,11 +270,20 @@ class Messenger:
                 totalSend += len(bytesToSend)
 
     def browse(self):
+        """choose file for uploading"""
+
         filename = filedialog.askopenfilename(initialdir = "/",title = "Select file",filetypes = (("all files","*.*"),))
         self.e_upload.delete(0, END)
         self.e_upload.insert(0, filename)
 
     def download(self):
+        """handle download request"""
+
+        if not self.isActive:
+            messagebox.showerror('Error', 'Remote user has closed this chat!')
+            self.gui.destroy()
+            return
+
         fname = self.e_download.get()
         self.s_send.send(b'DOWNLOAD')
         self.s_send.recv(1024)
@@ -240,15 +292,19 @@ class Messenger:
         if response == 'NO':
             messagebox.showerror('Error', 'File not found!')
             return
+
         self.s_send.send(b'OK')
-        s_down = socket.socket()
+        s_down = socket.socket() # this socket for receiving file
         addr = self.s_send.recv(1024).decode()
         addr = addr.split(' ')
         s_down.connect((addr[0], int(addr[1])))
+
         t = threading.Thread(target=self.download_thread, args=(s_down,))
         t.start()
 
     def download_thread(self, s_down):
+        """handle downloading file in a separated thread"""
+
         fsize = s_down.recv(1024)
         fsize = int(fsize)
         fname = filedialog.asksaveasfilename(initialdir = "/",title = "Select file",filetypes = (("all files","*.*"),))
@@ -269,7 +325,12 @@ class Messenger:
         f.close()
         self.recv_message('NOTI Download completed.')
 
-class MainRoom(Messenger):
+class MainRoom(Room):
+    """
+    The main chat room for all clients\n
+    Contains a feature to create private chat room
+    """
+
     def __init__(self, s_send, roomName):
         super(MainRoom, self).__init__(s_send, roomName)
 
@@ -279,6 +340,8 @@ class MainRoom(Messenger):
         butt_priv_chat.grid(row = 0, column = 2, sticky = W)
 
     def priv_chat(self):
+        """send create chat room command to server"""
+
         self.s_send.send(b'PRIVCHAT')
         self.s_send.recv(1024)
         peer = self.e_priv_chat.get()
@@ -287,10 +350,15 @@ class MainRoom(Messenger):
             messagebox.showerror('Error', 'User has not logged in yet!')
 
     def close_window(self):
+        """Exit the main room with logging out"""
         self.s_send.send(b'QUIT')
         self.gui.destroy()
 
 class RoomList:
+    """
+    Contains functions for creating private chat room
+    """
+
     rooms = {}
     s_send = None
 
@@ -299,24 +367,36 @@ class RoomList:
         t.start()
 
     def createRoom_thread(self, roomName):
-        self.rooms[roomName[0]] = Messenger(self.s_send, roomName)
+        """create and run chat room in a separated thread"""
+        self.rooms[roomName[0]] = Room(self.s_send, roomName)
         self.rooms[roomName[0]].run()
         self.rooms.pop(roomName[0])
 
 def main():
+    """The main thread run the main chat room"""
+
     host = '127.0.0.1'
     port = 6666
+
+    # get server host and port from settings file
+    with open('settings', 'r') as f:
+        host = f.readline().strip('\n')
+        port = f.readline().strip('\n')
+        port = int(port)
 
     s_send = socket.socket()
     s_send.connect((host, port))
     
+    # Login
     log_in = LogIn(s_send)
     username = log_in.run()
     if username == '':
         return
 
-    Messenger.username = username
+    # set username to all rooms that are being created
+    Room.username = username
 
+    # create socket for receiving commands and messages from server
     s_send.send(b'CONN')
     s_recv = socket.socket()
     addr = s_send.recv(1024).decode()
@@ -327,6 +407,7 @@ def main():
     RoomList.rooms = rooms
     RoomList.s_send = s_send
 
+    # use a separated thread for receiving via s_recv
     t = threading.Thread(target=recv_message, args=(rooms, s_recv))
     t.start()
 
@@ -334,12 +415,14 @@ def main():
     rooms['all'].run()
 
 def recv_message(rooms, s_recv):
+    """receive commands and messages from server and handle them"""
+
     while True:
         msg = s_recv.recv(1024).decode()
-        s_recv.send(b'OK')
-
         if msg == 'QUIT':
             break
+
+        s_recv.send(b'OK')
 
         if msg == 'PRIVCHAT':
             priv_chat(s_recv)
@@ -350,6 +433,8 @@ def recv_message(rooms, s_recv):
             rooms[msg[0]].recv_message(msg[1])
 
 def priv_chat(s_recv):
+    """handle PRIVCHAT command"""
+
     roomName = s_recv.recv(1024).decode()
     s_recv.send(b'OK')
 
@@ -357,6 +442,7 @@ def priv_chat(s_recv):
         roomName = s_recv.recv(1024).decode()
         s_recv.send(b'OK')
 
+        # if the room has been deleted, return
         if roomName not in RoomList.rooms:
             return
         
